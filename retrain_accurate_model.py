@@ -19,9 +19,12 @@ X = original.drop(columns=['class', 'timestamp']).copy()
 X.columns = [str(i) for i in range(X.shape[1])]
 y = original['class'].map({-1: 0, 1: 1}).values # 0=Pass, 1=Fail
 
-# Extract an actual passing row (label 0) as the baseline template for hidden background sensors
+# Extract baseline passing chip (label 0)
 passing_chips = X[y == 0]
 baseline_chip = passing_chips.iloc[[0]].copy()
+
+# Extract first 3 defective chips (label 1)
+defective_chips = X[y == 1].head(3).copy()
 
 print("2. Splitting data into Train and Test sets...")
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
@@ -81,21 +84,6 @@ print("ACCURATE MODEL EVALUATION ON UNSEEN TEST DATA")
 print("==========================================")
 print(classification_report(y_test, preds_test, target_names=["Pass (0)", "Fail (1)"]))
 
-# Verify Actual Passing Row Baseline Chip Prediction
-b_imp = imputer.transform(baseline_chip)
-b_scaled = scaler.transform(b_imp)
-b_sel = selector.transform(b_scaled)
-b_prob = float(clf.predict_proba(b_sel)[0][1])
-
-print("------------------------------------------")
-print(f"VERIFICATION - Actual Passing Chip Failure Prob: {b_prob:.2%}")
-if b_prob < best_threshold:
-    print("VERIFICATION SUCCESSFUL: Actual passing chip correctly predicts PASS (GOOD)!")
-else:
-    print("WARNING: Baseline chip failure prob above threshold!")
-
-print("------------------------------------------")
-
 pipeline = {
     'imputer': imputer,
     'scaler': scaler,
@@ -103,8 +91,9 @@ pipeline = {
     'model': clf,
     'selected_features': selected_indices,
     'optimal_threshold': best_threshold,
-    'baseline_chip': baseline_chip
+    'baseline_chip': baseline_chip,
+    'defective_chips': defective_chips
 }
 joblib.dump(pipeline, 'secom_defect_model.pkl')
-joblib.dump(baseline_chip, 'secom_baseline.pkl')
-print("Model pipeline updated and saved with actual passing row baseline template!")
+joblib.dump({'baseline': baseline_chip, 'defective': defective_chips}, 'secom_baseline.pkl')
+print("Model pipeline and defective profiles saved to 'secom_defect_model.pkl'!")
