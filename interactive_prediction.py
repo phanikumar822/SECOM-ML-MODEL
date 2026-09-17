@@ -8,19 +8,25 @@ warnings.filterwarnings('ignore')
 print("Loading AI Model and setting up Interactive Terminal...")
 pipe = joblib.load('secom_defect_model.pkl')
 
-# Load baseline chip from model artifact or local file
+# Extract an actual non-defective (passing, label 0) row as template for background 585 sensors
+baseline_file = 'secom_baseline.pkl'
 if 'baseline_chip' in pipe:
     baseline_chip = pipe['baseline_chip']
-elif os.path.exists('secom_baseline.pkl'):
-    baseline_chip = joblib.load('secom_baseline.pkl')
+elif os.path.exists(baseline_file):
+    baseline_chip = joblib.load(baseline_file)
 else:
-    print("Fetching initial baseline dataset from repository...")
+    print("Fetching dataset and extracting an actual non-defective (passing) template...")
     from ucimlrepo import fetch_ucirepo
     secom = fetch_ucirepo(id=179)
     original = secom.data.original
     X = original.drop(columns=['class', 'timestamp']).copy()
     X.columns = [str(i) for i in range(X.shape[1])]
-    baseline_chip = X.median().to_frame().T
+    y = original['class'].map({-1: 0, 1: 1}).values
+    
+    # Filter for non-defective rows (target label is 0) and use an actual passing row as template
+    passing_rows = X[y == 0]
+    baseline_chip = passing_rows.iloc[[0]].copy()
+    joblib.dump(baseline_chip, baseline_file)
 
 # Get optimal decision threshold from model artifact
 optimal_threshold = pipe.get('optimal_threshold', 0.2957)
@@ -36,18 +42,21 @@ print("\n" + "="*50)
 print(" INTERACTIVE SEMICONDUCTOR PREDICTION")
 print("="*50)
 print("The AI requires 590 sensors. To save time, we have filled")
-print("the background sensors with 'average' healthy factory values.")
+print("the background 585 sensors using an actual passing (non-defective) chip.")
 print("You will only input the values for the 5 most critical sensors.")
-print("(Press ENTER to just use the average value)\n")
+print("(Press ENTER to use the baseline passing value)\n")
 
 user_chip = baseline_chip.copy()
 
 for sensor_id in top_original_sensors:
     default_val = baseline_chip[str(sensor_id)].values[0]
+    # If the raw sample has NaN for this sensor, use the imputer's median value for clean display
+    if pd.isna(default_val):
+        default_val = pipe['imputer'].statistics_[int(sensor_id)]
     
     while True:
         try:
-            user_input = input(f"Enter value for Sensor {sensor_id:^3} (Average is {default_val:.4f}): ")
+            user_input = input(f"Enter value for Sensor {sensor_id:^3} (Baseline is {default_val:.4f}): ")
             if user_input.strip() == "":
                 val = default_val
             else:
