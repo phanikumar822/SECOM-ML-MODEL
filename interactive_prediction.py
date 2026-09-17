@@ -1,6 +1,6 @@
+import os
 import pandas as pd
 import numpy as np
-from ucimlrepo import fetch_ucirepo
 import joblib
 import warnings
 warnings.filterwarnings('ignore')
@@ -8,14 +8,19 @@ warnings.filterwarnings('ignore')
 print("Loading AI Model and setting up Interactive Terminal...")
 pipe = joblib.load('secom_defect_model.pkl')
 
-# Fetch the dataset just to calculate what an "average" chip looks like
-secom = fetch_ucirepo(id=179)
-original = secom.data.original
-X = original.drop(columns=['class', 'timestamp']).copy()
-X.columns = [str(i) for i in range(X.shape[1])]
-
-# Create a baseline chip (using the median of all chips)
-baseline_chip = X.median().to_frame().T
+# Load baseline chip from local disk cache if available (instant load)
+baseline_file = 'secom_baseline.pkl'
+if os.path.exists(baseline_file):
+    baseline_chip = joblib.load(baseline_file)
+else:
+    print("Fetching initial baseline dataset from repository (one-time setup)...")
+    from ucimlrepo import fetch_ucirepo
+    secom = fetch_ucirepo(id=179)
+    original = secom.data.original
+    X = original.drop(columns=['class', 'timestamp']).copy()
+    X.columns = [str(i) for i in range(X.shape[1])]
+    baseline_chip = X.median().to_frame().T
+    joblib.dump(baseline_chip, baseline_file)
 
 # Get the top 5 most important sensors from the saved model
 xgb_model = pipe['model']
