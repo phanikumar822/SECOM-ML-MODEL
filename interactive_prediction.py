@@ -8,21 +8,24 @@ warnings.filterwarnings('ignore')
 print("Loading AI Model and setting up Interactive Terminal...")
 pipe = joblib.load('secom_defect_model.pkl')
 
-# Load baseline chip from local disk cache if available (instant load)
-baseline_file = 'secom_baseline.pkl'
-if os.path.exists(baseline_file):
-    baseline_chip = joblib.load(baseline_file)
+# Load baseline chip from model artifact or local file
+if 'baseline_chip' in pipe:
+    baseline_chip = pipe['baseline_chip']
+elif os.path.exists('secom_baseline.pkl'):
+    baseline_chip = joblib.load('secom_baseline.pkl')
 else:
-    print("Fetching initial baseline dataset from repository (one-time setup)...")
+    print("Fetching initial baseline dataset from repository...")
     from ucimlrepo import fetch_ucirepo
     secom = fetch_ucirepo(id=179)
     original = secom.data.original
     X = original.drop(columns=['class', 'timestamp']).copy()
     X.columns = [str(i) for i in range(X.shape[1])]
     baseline_chip = X.median().to_frame().T
-    joblib.dump(baseline_chip, baseline_file)
 
-# Get the top 5 most important sensors from the saved model
+# Get optimal decision threshold from model artifact
+optimal_threshold = pipe.get('optimal_threshold', 0.2957)
+
+# Get top 5 most important sensors from saved model
 xgb_model = pipe['model']
 importances = xgb_model.feature_importances_
 selected_features = pipe['selected_features']
@@ -56,21 +59,20 @@ for sensor_id in top_original_sensors:
             print("  [!] Invalid input. Please enter a number.")
 
 print("\nRunning AI Prediction...")
-# Run the user's custom chip through the saved machine learning pipeline
+# Run through pipeline
 data_imp = pipe['imputer'].transform(user_chip)
 data_scaled = pipe['scaler'].transform(data_imp)
 data_sel = pipe['selector'].transform(data_scaled)
 
-prediction = pipe['model'].predict(data_sel)[0]
 prob = pipe['model'].predict_proba(data_sel)[0][1]
 
 print("\n" + "="*50)
 print(" RESULTS")
 print("="*50)
-# Use the production threshold of 23.48% instead of the default 50%
-if prob >= 0.2348:
-    print(f"!!! PREDICTION: FAIL (DEFECTIVE) !!!")
+if prob >= optimal_threshold:
+    print("!!! PREDICTION: FAIL (DEFECTIVE) !!!")
 else:
-    print(f"*** PREDICTION: PASS (GOOD) ***")
+    print("*** PREDICTION: PASS (GOOD) ***")
 print(f"Failure Probability: {prob:.2%}")
+print(f"Decision Threshold:  {optimal_threshold:.2%}")
 print("="*50)
